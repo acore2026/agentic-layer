@@ -32,6 +32,11 @@ The project includes both automated integration tests and a manual verification 
   ```bash
   ./scripts/verify_system.sh
   ```
+- **Persistent Stack Script:**
+  Starts all services and keeps them running for manual/external testing (e.g., Telegram).
+  ```bash
+  ./scripts/run_services.sh
+  ```
 - **Test-First Policy:** All new features or bug fixes MUST be verified by running the existing integration tests (or adding new ones) before implementation is considered complete.
 
 ## Planned Directory Structure
