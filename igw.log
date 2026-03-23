@@ -1,7 +1,7 @@
-2026/03/23 13:13:13 A-IGW (Interworking Gateway) starting on :18081...
-2026/03/23 13:13:13 Successfully registered skill mcp://skill/device/fleet-update with ACRF
-2026/03/23 13:13:32 --- Starting Translation Sequence for Fleet Wake-Up ---
-2026/03/23 13:13:32 [STEP 1/3] Triggering Namf_MT_EnableUEReachability (to AMF)
-2026/03/23 13:13:32 [STEP 2/3] Triggering Nsmf_PDUSession_UpdateSMContext (to SMF)
-2026/03/23 13:13:32 [STEP 3/3] Triggering Nnef_AFSessionWithQoS_Create (to NEF)
-2026/03/23 13:13:32 --- Translation Sequence Completed Successfully ---
+2026/03/23 14:25:49 A-IGW (Interworking Gateway) starting on :18081...
+2026/03/23 14:25:49 Successfully registered skill mcp://skill/device/fleet-update with ACRF
+2026/03/23 14:26:07 --- Starting Translation Sequence for Fleet Wake-Up ---
+2026/03/23 14:26:07 [STEP 1/3] Triggering Namf_MT_EnableUEReachability (to AMF)
+2026/03/23 14:26:07 [STEP 2/3] Triggering Nsmf_PDUSession_UpdateSMContext (to SMF)
+2026/03/23 14:26:07 [STEP 3/3] Triggering Nnef_AFSessionWithQoS_Create (to NEF)
+2026/03/23 14:26:07 --- Translation Sequence Completed Successfully ---

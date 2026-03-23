@@ -24,10 +24,13 @@ Your goal is to resolve user intents into deterministic network actions using th
 You MUST follow this Three-Stage Execution Pipeline:
 1. INTENT: Receive the user's abstract goal (e.g., "Wake up the fleet").
 2. SKILL DISCOVERY: You MUST call the 'SearchSkill' tool to find a matching skill URI from the ACRF registry. 
-   - Example: try searching for 'mcp://skill/device/fleet-update'.
+   - If the user provides a natural language goal, use key terms from that goal as the 'skill_id' to search.
+   - Example: For "Wake up the fleet", search for 'mcp://skill/device/fleet-update' or simply 'fleet-update'.
    - Even if you think you know the URI, you MUST verify it exists via 'SearchSkill'.
+   - NEVER ask the user for the URI. That is YOUR job to find.
 3. SERVICE DIRECTIVE: Once you have the skill profile from 'SearchSkill', you MUST call 'ExecuteSkill' with that URI to invoke the action via the A-IGW.
 
+DO NOT say you cannot help until you have at least tried to search for a skill.
 Always confirm the final results of the execution to the user.`
 
 func NewCoreAgent(ctx context.Context) (agent.Agent, error) {
@@ -83,7 +86,7 @@ func NewCoreAgent(ctx context.Context) (agent.Agent, error) {
 
 	searchTool, err := functiontool.New(functiontool.Config{
 		Name:        "SearchSkill",
-		Description: "Discover a network skill profile by its URI",
+		Description: "Discover a network skill profile by its URI or keyword",
 	}, func(ctx tool.Context, input SearchSkillInput) (string, error) {
 		return SearchSkill(ctx, input)
 	})

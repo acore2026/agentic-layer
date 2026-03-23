@@ -1,7 +1,9 @@
 package registry
 
 import (
+	"strings"
 	"sync"
+
 	"github.com/google/6g-agentic-core/pkg/models"
 )
 
@@ -30,6 +32,18 @@ func (r *InMemoryRegistry) Register(profile models.SkillProfile) {
 func (r *InMemoryRegistry) Discover(skillID string) (models.SkillProfile, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	profile, ok := r.skills[skillID]
-	return profile, ok
+
+	// 1. Exact match
+	if profile, ok := r.skills[skillID]; ok {
+		return profile, true
+	}
+
+	// 2. Partial/Keyword match (Simple Semantic Engine simulation)
+	for id, profile := range r.skills {
+		if strings.Contains(strings.ToLower(id), strings.ToLower(skillID)) {
+			return profile, true
+		}
+	}
+
+	return models.SkillProfile{}, false
 }

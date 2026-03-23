@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 )
@@ -19,6 +20,8 @@ func SearchSkill(ctx context.Context, input SearchSkillInput) (string, error) {
 	if acrfURL == "" {
 		acrfURL = "http://localhost:18080"
 	}
+
+	log.Printf("[Tool:SearchSkill] Searching for: %s at %s", input.SkillID, acrfURL)
 
 	url := fmt.Sprintf("%s/discover?skill_id=%s", acrfURL, input.SkillID)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -37,6 +40,7 @@ func SearchSkill(ctx context.Context, input SearchSkillInput) (string, error) {
 	}
 
 	body, _ := io.ReadAll(resp.Body)
+	log.Printf("[Tool:SearchSkill] Found profile: %s", string(body))
 	return string(body), nil
 }
 
@@ -49,6 +53,8 @@ func ExecuteSkill(ctx context.Context, input ExecuteSkillInput) (string, error) 
 	if igwURL == "" {
 		igwURL = "http://localhost:18081"
 	}
+
+	log.Printf("[Tool:ExecuteSkill] Executing skill: %s at %s", input.SkillID, igwURL)
 
 	payload := map[string]string{"skill_id": input.SkillID}
 	jsonData, _ := json.Marshal(payload)
@@ -67,5 +73,6 @@ func ExecuteSkill(ctx context.Context, input ExecuteSkillInput) (string, error) 
 		return "", fmt.Errorf("A-IGW execution failed (Status %d): %s", resp.StatusCode, string(body))
 	}
 
+	log.Printf("[Tool:ExecuteSkill] Execution successful: %s", string(body))
 	return string(body), nil
 }
