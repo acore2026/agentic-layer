@@ -3,11 +3,16 @@ package agent
 import (
 	"context"
 	"fmt"
+	"iter"
+	"log"
 	"os"
 
+	"github.com/google/6g-agentic-core/internal/agent/openai"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
+	"google.golang.org/adk/model"
 	"google.golang.org/adk/model/gemini"
+	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
 	"google.golang.org/genai"
@@ -16,36 +21,72 @@ import (
 const SystemInstruction = `You are a 6G Skill-Based Agentic Core Network Reasoner. 
 Your goal is to resolve user intents into deterministic network actions using the provided tools.
 
-Follow this Three-Stage Execution Pipeline:
-1. INTENT: Receive and understand the user's abstract goal (e.g., "Wake up the fleet").
-2. SKILL: Use 'SearchSkill' to find a matching skill URI from the ACRF registry. 
-   - If you don't know the exact URI, try common ones like 'mcp://skill/device/fleet-update'.
-   - You MUST have a discovered skill profile before proceeding to execution.
-3. SERVICE DIRECTIVE: Use 'ExecuteSkill' to invoke the discovered skill via the A-IGW.
+You MUST follow this Three-Stage Execution Pipeline:
+1. INTENT: Receive the user's abstract goal (e.g., "Wake up the fleet").
+2. SKILL DISCOVERY: You MUST call the 'SearchSkill' tool to find a matching skill URI from the ACRF registry. 
+   - Example: try searching for 'mcp://skill/device/fleet-update'.
+   - Even if you think you know the URI, you MUST verify it exists via 'SearchSkill'.
+3. SERVICE DIRECTIVE: Once you have the skill profile from 'SearchSkill', you MUST call 'ExecuteSkill' with that URI to invoke the action via the A-IGW.
 
-Always confirm the results of your discovery and execution to the user.`
+Always confirm the final results of the execution to the user.`
 
 func NewCoreAgent(ctx context.Context) (agent.Agent, error) {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		return nil, fmt.Errorf("GEMINI_API_KEY environment variable is required")
+	if os.Getenv("AGENTIC_USE_MOCK_AGENT") == "true" {
+		log.Println("Using MockCoreAgent as requested by AGENTIC_USE_MOCK_AGENT=true")
+		return NewMockCoreAgent()
 	}
 
-	clientCfg := &genai.ClientConfig{
-		APIKey:  apiKey,
-		Backend: genai.BackendGeminiAPI,
+	provider := os.Getenv("AGENTIC_LLM_PROVIDER")
+	if provider == "" {
+		provider = "gemini"
 	}
 
-	// Note: using gemini-1.5-flash as it is most likely to be available on free tier.
-	model, err := gemini.NewModel(ctx, "gemini-1.5-flash", clientCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gemini model: %v", err)
+	var llm model.LLM
+	var err error
+
+	switch provider {
+	case "kimi":
+		apiKey := os.Getenv("AGENTIC_KIMI_API_KEY")
+		baseURL := os.Getenv("AGENTIC_KIMI_BASE_URL")
+		modelName := os.Getenv("AGENTIC_KIMI_MODEL")
+		if baseURL == "" {
+			baseURL = "https://api.moonshot.cn/v1"
+		}
+		if modelName == "" {
+			modelName = "kimi-k2.5"
+		}
+		llm = &openai.Provider{
+			APIKey:  apiKey,
+			BaseURL: baseURL,
+			Model:   modelName,
+		}
+		log.Printf("Initialized Kimi provider (Model: %s)", modelName)
+
+	case "gemini":
+		apiKey := os.Getenv("AGENTIC_GEMINI_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("AGENTIC_GEMINI_API_KEY environment variable is required for Gemini")
+		}
+		clientCfg := &genai.ClientConfig{
+			APIKey:  apiKey,
+			Backend: genai.BackendGeminiAPI,
+		}
+		llm, err = gemini.NewModel(ctx, "gemini-1.5-flash", clientCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create gemini model: %v", err)
+		}
+		log.Println("Initialized Gemini provider")
+
+	default:
+		return nil, fmt.Errorf("unsupported LLM provider: %s", provider)
 	}
 
 	searchTool, err := functiontool.New(functiontool.Config{
 		Name:        "SearchSkill",
-		Description: "Discover a network skill profile by its URI (e.g., mcp://skill/device/fleet-update)",
-	}, SearchSkill)
+		Description: "Discover a network skill profile by its URI",
+	}, func(ctx tool.Context, input SearchSkillInput) (string, error) {
+		return SearchSkill(ctx, input)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create search tool: %v", err)
 	}
@@ -53,7 +94,9 @@ func NewCoreAgent(ctx context.Context) (agent.Agent, error) {
 	executeTool, err := functiontool.New(functiontool.Config{
 		Name:        "ExecuteSkill",
 		Description: "Invoke a discovered network skill via the Interworking Gateway",
-	}, ExecuteSkill)
+	}, func(ctx tool.Context, input ExecuteSkillInput) (string, error) {
+		return ExecuteSkill(ctx, input)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create execute tool: %v", err)
 	}
@@ -62,9 +105,56 @@ func NewCoreAgent(ctx context.Context) (agent.Agent, error) {
 		Name:        "CoreReasoner",
 		Description: "Reasoning engine for 6G intent resolution",
 		Instruction: SystemInstruction,
-		Model:       model,
+		Model:       llm,
 		Tools:       []tool.Tool{searchTool, executeTool},
 	}
 
 	return llmagent.New(cfg)
+}
+
+// NewMockCoreAgent creates a deterministic mock agent for testing.
+func NewMockCoreAgent() (agent.Agent, error) {
+	cfg := agent.Config{
+		Name:        "CoreReasoner",
+		Description: "Mock reasoning engine for 6G intent resolution",
+		Run: func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+			return func(yield func(*session.Event, error) bool) {
+				prompt := ""
+				if ctx.UserContent() != nil && len(ctx.UserContent().Parts) > 0 {
+					prompt = ctx.UserContent().Parts[0].Text
+				}
+
+				log.Printf("[MockAgent] Processing prompt: %s", prompt)
+
+				// 1. Discovery Step
+				skillID := "mcp://skill/device/fleet-update"
+				log.Printf("[MockAgent] Calling SearchSkill for %s", skillID)
+				profile, err := SearchSkill(context.Background(), SearchSkillInput{SkillID: skillID})
+				if err != nil {
+					yield(nil, fmt.Errorf("discovery failed: %v", err))
+					return
+				}
+				log.Printf("[MockAgent] Discovery result: %s", profile)
+
+				// 2. Invocation Step
+				log.Printf("[MockAgent] Calling ExecuteSkill for %s", skillID)
+				result, err := ExecuteSkill(context.Background(), ExecuteSkillInput{SkillID: skillID})
+				if err != nil {
+					yield(nil, fmt.Errorf("invocation failed: %v", err))
+					return
+				}
+				log.Printf("[MockAgent] Invocation result: %s", result)
+
+				// 3. Final Response
+				finalMsg := fmt.Sprintf("Mock result: successfully triggered %s", skillID)
+				event := session.NewEvent(ctx.InvocationID())
+				event.Content = &genai.Content{
+					Parts: []*genai.Part{{Text: finalMsg}},
+					Role:  "model",
+				}
+				yield(event, nil)
+			}
+		},
+	}
+	return agent.New(cfg)
 }

@@ -22,6 +22,6 @@ Standard network control requires hard-coded logic for every intent. This change
 
 ## Impact
 
-- **New Service:** `aaihf` (port 8082).
+- **New Service:** `aaihf` (port 18082).
 - **Dependencies:** `github.com/google/adk-go`.
 - **Infrastructure:** Requires `GEMINI_API_KEY` for LLM inference. 

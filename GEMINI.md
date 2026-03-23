@@ -19,6 +19,21 @@ The system is structured into three primary Go-based microservices:
 2. **ACRF (Agentic Capability Repository Function):** A dynamic skill registry that stores "Agentic Skill Profiles" and maps them to service endpoints.
 3. **A-IGW (Interworking Gateway):** The "Universal Translator" that receives skill invocations and translates them into sequences of 3GPP API calls to the core network.
 
+## Testing and Verification
+
+The project includes both automated integration tests and a manual verification script.
+
+- **Automated Tests:**
+  ```bash
+  go test -v ./tests/...
+  ```
+- **Manual Verification Script:**
+  Starts all services, sends a test intent, and prints the result.
+  ```bash
+  ./scripts/verify_system.sh
+  ```
+- **Test-First Policy:** All new features or bug fixes MUST be verified by running the existing integration tests (or adding new ones) before implementation is considered complete.
+
 ## Planned Directory Structure
 
 ```text
@@ -30,9 +45,11 @@ agentic-layer/
 ├── internal/
 │   ├── agent/           # reasoning logic (adk-go)
 │   ├── registry/        # in-memory skill registry logic
-│   └── translator/      # skill-to-API translation logic
+│   ├── translator/      # skill-to-API translation logic
+│   └── testutil/        # test orchestration and mocks
 ├── pkg/
 │   └── models/          # Shared SkillProfile and common structs
+├── tests/               # Cross-service integration tests
 ├── openspec/            # Spec-driven development artifacts
 ├── go.mod
 └── go.sum
@@ -47,15 +64,16 @@ This project uses the **OpenSpec** workflow for spec-driven development.
 
 ## Building and Running
 
-*Note: Initial setup is in progress.*
-
 - **Environment:** Requires Go 1.22+ and access to a 5G core (free5gc/ueransim).
 - **Initialization:**
   ```bash
-  go mod init github.com/your-org/6g-agentic-core
+  go mod init github.com/google/6g-agentic-core
   go mod tidy
   ```
-- **Execution (TODO):** Standard Go execution commands (e.g., `go run cmd/acrf/main.go`).
+- **Execution:**
+  - **ACRF:** `go run cmd/acrf/main.go` (Port 18080)
+  - **IGW:** `go run cmd/igw-fleet/main.go` (Port 18081)
+  - **AAIHF:** `go run cmd/aaihf/main.go` (Port 18082 - requires `AGENTIC_GEMINI_API_KEY`)
 
 ## Development Conventions
 

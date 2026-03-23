@@ -3,6 +3,7 @@ module github.com/google/6g-agentic-core
 go 1.26.1
 
 require (
+	github.com/joho/godotenv v1.5.1
 	google.golang.org/adk v0.6.0
 	google.golang.org/genai v1.51.0
 )

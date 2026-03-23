@@ -11,17 +11,18 @@ import (
 )
 
 type SearchSkillInput struct {
-	SkillID string `json:"skill_id" description:"The unique URI of the skill to discover (e.g., mcp://skill/device/fleet-update)"`
+	SkillID string `json:"skill_id" jsonschema:"The unique URI of the skill to discover (e.g. mcp://skill/device/fleet-update)"`
 }
 
 func SearchSkill(ctx context.Context, input SearchSkillInput) (string, error) {
-	acrfURL := os.Getenv("ACRF_URL")
+	acrfURL := os.Getenv("AGENTIC_ACRF_URL")
 	if acrfURL == "" {
-		acrfURL = "http://localhost:8080"
+		acrfURL = "http://localhost:18080"
 	}
 
 	url := fmt.Sprintf("%s/discover?skill_id=%s", acrfURL, input.SkillID)
-	resp, err := http.Get(url)
+	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to call ACRF: %v", err)
 	}
@@ -40,20 +41,22 @@ func SearchSkill(ctx context.Context, input SearchSkillInput) (string, error) {
 }
 
 type ExecuteSkillInput struct {
-	SkillID string `json:"skill_id" description:"The URI of the skill to execute (must have been discovered first)"`
+	SkillID string `json:"skill_id" jsonschema:"The URI of the skill to execute (must have been discovered first)"`
 }
 
 func ExecuteSkill(ctx context.Context, input ExecuteSkillInput) (string, error) {
-	igwURL := os.Getenv("IGW_URL")
+	igwURL := os.Getenv("AGENTIC_IGW_URL")
 	if igwURL == "" {
-		igwURL = "http://localhost:8081"
+		igwURL = "http://localhost:18081"
 	}
 
 	payload := map[string]string{"skill_id": input.SkillID}
 	jsonData, _ := json.Marshal(payload)
 
 	url := fmt.Sprintf("%s/invoke", igwURL)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to call A-IGW: %v", err)
 	}

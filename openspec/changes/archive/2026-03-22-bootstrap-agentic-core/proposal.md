@@ -21,6 +21,6 @@ Standard 3GPP discovery (NRF) relies on rigid, identity-based matching that brea
 
 ## Impact
 
-- **New Services:** `acrf` (port 8080), `igw-fleet` (port 8081).
+- **New Services:** `acrf` (port 18080), `igw-fleet` (port 18081).
 - **Dependencies:** `github.com/google/adk-go` (for future AAIHF integration).
 - **Architecture:** Introduces a decoupled AI layer sitting on top of the legacy 5G Core (free5gc).
