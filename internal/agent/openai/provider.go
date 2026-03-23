@@ -3,13 +3,13 @@ package openai
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"iter"
 	"log"
 	"net/http"
-	"strings"
 	"sync"
 
 	"google.golang.org/adk/model"
@@ -44,6 +44,23 @@ type openAIMessage struct {
 	ToolCallID       string           `json:"tool_call_id,omitempty"`
 }
 
+func (m *openAIMessage) getFingerprint() string {
+	h := sha256.New()
+	h.Write([]byte(m.Role))
+	h.Write([]byte(m.Content))
+	for _, tc := range m.ToolCalls {
+		h.Write([]byte(tc.Function.Name))
+		var args map[string]any
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil {
+			canon, _ := json.Marshal(args)
+			h.Write(canon)
+		} else {
+			h.Write([]byte(tc.Function.Arguments))
+		}
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
 type openAITool struct {
 	Type     string             `json:"type"`
 	Function openAIFunctionDesc `json:"function"`
@@ -72,39 +89,6 @@ type openAIResponse struct {
 	} `json:"choices"`
 }
 
-func mapGenaiSchema(s *genai.Schema) any {
-	if s == nil {
-		return map[string]any{"type": "object", "properties": map[string]any{}}
-	}
-	res := make(map[string]any)
-	if s.Type != "" {
-		res["type"] = strings.ToLower(string(s.Type))
-	} else {
-		res["type"] = "object"
-	}
-	
-	if s.Description != "" {
-		res["description"] = s.Description
-	}
-	if len(s.Required) > 0 {
-		res["required"] = s.Required
-	}
-	if len(s.Properties) > 0 {
-		props := make(map[string]any)
-		for k, v := range s.Properties {
-			props[k] = mapGenaiSchema(v)
-		}
-		res["properties"] = props
-	} else if res["type"] == "object" {
-		res["properties"] = map[string]any{}
-	}
-	
-	if s.Items != nil {
-		res["items"] = mapGenaiSchema(s.Items)
-	}
-	return res
-}
-
 func (p *Provider) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	if p.reasoningCache == nil {
 		p.mu.Lock()
@@ -124,54 +108,77 @@ func (p *Provider) GenerateContent(ctx context.Context, req *model.LLMRequest, s
 			Model: p.Model,
 		}
 
-		for _, c := range req.Contents {
-			msg := openAIMessage{Role: c.Role}
+		toolCounts := make(map[string]int)
+
+		for i, c := range req.Contents {
 			if c.Role == "model" {
-				msg.Role = "assistant"
-			}
-			
-			hasContent := false
-			for _, part := range c.Parts {
-				if part.Text != "" {
-					msg.Content = part.Text
-					hasContent = true
-				}
-				if part.FunctionCall != nil {
-					callID := "call_" + part.FunctionCall.Name
-					argsBytes, _ := json.Marshal(part.FunctionCall.Args)
-					msg.ToolCalls = append(msg.ToolCalls, openAIToolCall{
-						ID:   callID,
-						Type: "function",
-						Function: openAIFunctionCall{
-							Name:      part.FunctionCall.Name,
-							Arguments: string(argsBytes), 
-						},
-					})
-					hasContent = true
-				}
-				if part.FunctionResponse != nil {
-					msg.Role = "tool"
-					msg.ToolCallID = "call_" + part.FunctionResponse.Name
-					respBytes, _ := json.Marshal(part.FunctionResponse.Response)
-					msg.Content = string(respBytes)
-					hasContent = true
-				}
-			}
-			
-			if hasContent {
-				// Restore reasoning content from cache for assistant messages
-				if msg.Role == "assistant" && msg.Content != "" {
-					p.mu.Lock()
-					if rc, ok := p.reasoningCache[msg.Content]; ok {
-						msg.ReasoningContent = rc
+				msg := openAIMessage{Role: "assistant"}
+				toolCallInThisTurn := 0
+				
+				for _, part := range c.Parts {
+					if part.Text != "" {
+						msg.Content = part.Text
 					}
-					p.mu.Unlock()
+					if part.FunctionCall != nil {
+						callID := fmt.Sprintf("call_%s_%d", part.FunctionCall.Name, toolCallInThisTurn)
+						toolCallInThisTurn++
+						
+						argsBytes, _ := json.Marshal(part.FunctionCall.Args)
+						msg.ToolCalls = append(msg.ToolCalls, openAIToolCall{
+							ID:   callID,
+							Type: "function",
+							Function: openAIFunctionCall{
+								Name:      part.FunctionCall.Name,
+								Arguments: string(argsBytes), 
+							},
+						})
+					}
 				}
+				
+				fp := msg.getFingerprint()
+				p.mu.Lock()
+				if rc, ok := p.reasoningCache[fp]; ok {
+					msg.ReasoningContent = rc
+				}
+				p.mu.Unlock()
+				
 				oaReq.Messages = append(oaReq.Messages, msg)
+				toolCounts = make(map[string]int)
+				continue
+			}
+
+			hasToolResponse := false
+			for _, part := range c.Parts {
+				if part.FunctionResponse != nil {
+					idx := toolCounts[part.FunctionResponse.Name]
+					toolCounts[part.FunctionResponse.Name]++
+					
+					callID := fmt.Sprintf("call_%s_%d", part.FunctionResponse.Name, idx)
+					respBytes, _ := json.Marshal(part.FunctionResponse.Response)
+					
+					oaReq.Messages = append(oaReq.Messages, openAIMessage{
+						Role:       "tool",
+						ToolCallID: callID,
+						Content:    string(respBytes),
+					})
+					hasToolResponse = true
+				}
+			}
+
+			if !hasToolResponse {
+				content := ""
+				if len(c.Parts) > 0 {
+					content = c.Parts[0].Text
+				}
+				if content != "" || i == 0 {
+					oaReq.Messages = append(oaReq.Messages, openAIMessage{
+						Role:    "user",
+						Content: content,
+					})
+				}
 			}
 		}
 
-		// Tool Injection - Use RAW MAP to ensure accuracy
 		oaReq.Tools = []openAITool{
 			{
 				Type: "function",
@@ -183,7 +190,7 @@ func (p *Provider) GenerateContent(ctx context.Context, req *model.LLMRequest, s
 						"properties": map[string]any{
 							"skill_id": map[string]any{
 								"type":        "string",
-								"description": "The unique URI or keyword of the skill to discover (e.g., mcp://skill/device/fleet-update or 'fleet-update')",
+								"description": "The unique URI or keyword of the skill to discover",
 							},
 						},
 						"required": []string{"skill_id"},
@@ -200,7 +207,7 @@ func (p *Provider) GenerateContent(ctx context.Context, req *model.LLMRequest, s
 						"properties": map[string]any{
 							"skill_id": map[string]any{
 								"type":        "string",
-								"description": "The URI of the skill to execute (must have been discovered first)",
+								"description": "The URI of the skill to execute",
 							},
 						},
 						"required": []string{"skill_id"},
@@ -251,10 +258,10 @@ func (p *Provider) GenerateContent(ctx context.Context, req *model.LLMRequest, s
 			role = "model"
 		}
 
-		// Cache reasoning content for next turn
-		if choice.ReasoningContent != "" && choice.Content != "" {
+		if choice.ReasoningContent != "" {
+			fp := choice.getFingerprint()
 			p.mu.Lock()
-			p.reasoningCache[choice.Content] = choice.ReasoningContent
+			p.reasoningCache[fp] = choice.ReasoningContent
 			p.mu.Unlock()
 		}
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/google/6g-agentic-core/internal/translator"
+	"github.com/joho/godotenv"
 )
 
 const (
@@ -14,10 +15,13 @@ const (
 )
 
 func main() {
+	// Load environment variables from .env file
+	godotenv.Load()
+
 	fleetTranslator := translator.NewFleetTranslator()
 	handler := translator.NewHandler(fleetTranslator)
 
-	// Register skill with ACRF in background
+	// Register skill with ACRF in background, including semantic description
 	go translator.RegisterSkillWithACRF(acrfURL, skillID, invokeURL)
 
 	log.Println("A-IGW (Interworking Gateway) starting on :18081...")

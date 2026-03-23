@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -13,7 +14,14 @@ import (
 
 	"github.com/google/6g-agentic-core/internal/agent"
 	"github.com/google/6g-agentic-core/internal/testutil"
+	"github.com/joho/godotenv"
 )
+
+func TestMain(m *testing.M) {
+	// Load .env from project root
+	_ = godotenv.Load("../.env")
+	os.Exit(m.Run())
+}
 
 func TestSystem_EndToEnd_FleetWakeUp(t *testing.T) {
 	// 1. Setup ACRF
@@ -44,8 +52,8 @@ func TestSystem_EndToEnd_FleetWakeUp(t *testing.T) {
 	}
 	defer aaihfCloser()
 
-	// Give a small window for everything to be ready
-	time.Sleep(200 * time.Millisecond)
+	// Give a small window for everything to be ready (registration takes time now because of embedding call)
+	time.Sleep(2 * time.Second)
 
 	// 4. Trigger Intent
 	intentReq := map[string]string{
@@ -79,17 +87,18 @@ func TestSystem_EndToEnd_FleetWakeUp(t *testing.T) {
 	}
 }
 
-func TestSystem_ACRF_Discovery(t *testing.T) {
+func TestSystem_ACRF_SemanticDiscovery(t *testing.T) {
 	acrfURL, acrfCloser, err := testutil.SetupACRF()
 	if err != nil {
 		t.Fatalf("failed to setup ACRF: %v", err)
 	}
 	defer acrfCloser()
 
-	// Register a dummy skill
+	// 1. Register a skill with a clear description
 	skill := map[string]string{
-		"skill_id":            "mcp://skill/test",
-		"entity_type":         "UE",
+		"skill_id":            "mcp://skill/network/slice-optimize",
+		"description":         "Optimize network slices for high bandwidth and low latency video streaming.",
+		"entity_type":         "NF",
 		"agentic_service_uri": "http://localhost:9999",
 	}
 	skillJSON, _ := json.Marshal(skill)
@@ -98,20 +107,50 @@ func TestSystem_ACRF_Discovery(t *testing.T) {
 		t.Fatalf("failed to register skill: %v", err)
 	}
 
-	// Discover it
-	resp, err := http.Get(fmt.Sprintf("%s/discover?skill_id=%s", acrfURL, "mcp://skill/test"))
+	// 2. Discover it using a semantically similar query (not exact words)
+	query := "improve video quality on the mobile network"
+	resp, err := http.Get(fmt.Sprintf("%s/discover?skill_id=%s", acrfURL, url.QueryEscape(query)))
 	if err != nil {
 		t.Fatalf("failed to discover skill: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("discovery failed with status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("discovery failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var discovered map[string]any
 	json.NewDecoder(resp.Body).Decode(&discovered)
-	if discovered["skill_id"] != "mcp://skill/test" {
-		t.Errorf("expected skill_id mcp://skill/test, got %v", discovered["skill_id"])
+	if discovered["skill_id"] != "mcp://skill/network/slice-optimize" {
+		t.Errorf("expected skill_id mcp://skill/network/slice-optimize, got %v", discovered["skill_id"])
+	}
+}
+
+func TestSystem_ACRF_LowConfidence_404(t *testing.T) {
+	acrfURL, acrfCloser, err := testutil.SetupACRF()
+	if err != nil {
+		t.Fatalf("failed to setup ACRF: %v", err)
+	}
+	defer acrfCloser()
+
+	// Register a specific skill
+	skill := map[string]string{
+		"skill_id":    "mcp://skill/device/reboot",
+		"description": "Remotely reboot a specific hardware device.",
+	}
+	skillJSON, _ := json.Marshal(skill)
+	http.Post(acrfURL+"/register", "application/json", bytes.NewBuffer(skillJSON))
+
+	// Query for something completely unrelated
+	query := "how to cook a pizza"
+	resp, err := http.Get(fmt.Sprintf("%s/discover?skill_id=%s", acrfURL, url.QueryEscape(query)))
+	if err != nil {
+		t.Fatalf("failed to call discover: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 for unrelated query, got %d", resp.StatusCode)
 	}
 }

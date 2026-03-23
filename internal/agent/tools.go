@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 )
 
@@ -23,8 +24,9 @@ func SearchSkill(ctx context.Context, input SearchSkillInput) (string, error) {
 
 	log.Printf("[Tool:SearchSkill] Searching for: %s at %s", input.SkillID, acrfURL)
 
-	url := fmt.Sprintf("%s/discover?skill_id=%s", acrfURL, input.SkillID)
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	// URL Encode the query parameter
+	discoveryURL := fmt.Sprintf("%s/discover?skill_id=%s", acrfURL, url.QueryEscape(input.SkillID))
+	req, _ := http.NewRequestWithContext(ctx, "GET", discoveryURL, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to call ACRF: %v", err)
@@ -59,8 +61,8 @@ func ExecuteSkill(ctx context.Context, input ExecuteSkillInput) (string, error) 
 	payload := map[string]string{"skill_id": input.SkillID}
 	jsonData, _ := json.Marshal(payload)
 
-	url := fmt.Sprintf("%s/invoke", igwURL)
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	invokeURL := fmt.Sprintf("%s/invoke", igwURL)
+	req, _ := http.NewRequestWithContext(ctx, "POST", invokeURL, bytes.NewBuffer(jsonData))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

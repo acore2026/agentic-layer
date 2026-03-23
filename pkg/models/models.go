@@ -29,6 +29,7 @@ type AppContainer struct {
 
 type SkillProfile struct {
 	SkillID           string            `json:"skill_id"`
+	Description       string            `json:"description"`
 	EntityType        string            `json:"entity_type"` // "UE", "NF", "AF"
 	ServiceClass      ServiceClass      `json:"service_class"`
 	AgenticServiceURI string            `json:"agentic_service_uri"`

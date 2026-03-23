@@ -13,6 +13,7 @@ import (
 func RegisterSkillWithACRF(acrfURL string, skillID string, invokeURL string) {
 	profile := models.SkillProfile{
 		SkillID:           skillID,
+		Description:       "Trigger a wake-up and firmware update sequence for a device fleet. Ensures reachability and sets up SM context.",
 		EntityType:        "NF",
 		ServiceClass:      models.ServiceClassSilver,
 		AgenticServiceURI: invokeURL,
@@ -33,7 +34,7 @@ func RegisterSkillWithACRF(acrfURL string, skillID string, invokeURL string) {
 			log.Printf("Successfully registered skill %s with ACRF", skillID)
 			return
 		}
-		log.Printf("ACRF not ready (attempt %d/5), retrying in 2s...", i+1)
+		log.Printf("ACRF not ready or error (attempt %d/5), retrying in 2s...", i+1)
 		time.Sleep(2 * time.Second)
 	}
 	log.Printf("Failed to register skill %s with ACRF after 5 attempts", skillID)
