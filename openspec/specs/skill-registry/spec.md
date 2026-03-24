@@ -7,6 +7,13 @@ The ACRF SHALL provide an HTTP POST `/register` endpoint to save a `SkillProfile
 - **WHEN** a POST request is made to `/register` with a valid `SkillProfile` JSON payload
 - **THEN** the system SHALL return a `200 OK` and store the profile.
 
+### Requirement: Bootstrapping Registration
+The system SHALL automatically register a default set of network skills with the ACRF on startup.
+
+#### Scenario: Successful Bootstrap
+- **WHEN** the ACRF starts up
+- **THEN** it SHALL register `fleet-update`, `turbo-mode`, `path-diversity`, and `secure-flight` skills.
+
 ### Requirement: Skill Discovery
 The ACRF SHALL provide an HTTP GET `/discover?skill_id=...` endpoint to retrieve a `SkillProfile`. It SHALL support both exact `SkillID` matching and semantic matching based on the provided query string.
 

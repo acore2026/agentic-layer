@@ -6,6 +6,7 @@ import (
 	"iter"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/google/6g-agentic-core/internal/agent/openai"
 	"google.golang.org/adk/agent"
@@ -23,7 +24,7 @@ Your goal is to resolve user intents into deterministic network actions using th
 
 You MUST follow this Three-Stage Execution Pipeline:
 1. INTENT: Receive the user's abstract goal (e.g., "Wake up the fleet").
-2. SKILL DISCOVERY: You MUST call the 'SearchSkill' tool to find a matching skill URI from the ACRF registry. 
+2. SKILL DISCOVERY: You MUST call the 'SearchSkill' tool to find a matching skill URI from the ACRF registry
    - If the user provides a natural language goal, use key terms from that goal as the 'skill_id' to search.
    - Example: For "Wake up the fleet", search for 'mcp://skill/device/fleet-update' or simply 'fleet-update'.
    - Even if you think you know the URI, you MUST verify it exists via 'SearchSkill'.
@@ -129,21 +130,52 @@ func NewMockCoreAgent() (agent.Agent, error) {
 
 				log.Printf("[MockAgent] Processing prompt: %s", prompt)
 
+				// Determine SkillID based on prompt
+				skillID := "mcp://skill/device/fleet-update" // Default
+				if strings.Contains(strings.ToLower(prompt), "turbo") {
+					skillID = "mcp://skill/qos/turbo-mode"
+				} else if strings.Contains(strings.ToLower(prompt), "interruption") || strings.Contains(strings.ToLower(prompt), "v2x") {
+					skillID = "mcp://skill/reliability/path-diversity"
+				} else if strings.Contains(strings.ToLower(prompt), "drone") || strings.Contains(strings.ToLower(prompt), "flight") {
+					skillID = "mcp://skill/edge/secure-flight"
+				} else if strings.Contains(strings.ToLower(prompt), "pizza") {
+					skillID = "mcp://skill/cook/pizza"
+				}
+
 				// 1. Discovery Step
-				skillID := "mcp://skill/device/fleet-update"
 				log.Printf("[MockAgent] Calling SearchSkill for %s", skillID)
 				profile, err := SearchSkill(context.Background(), SearchSkillInput{SkillID: skillID})
 				if err != nil {
 					yield(nil, fmt.Errorf("discovery failed: %v", err))
 					return
 				}
+				
+				if strings.Contains(profile, "not found") {
+					log.Printf("[MockAgent] Discovery result: %s", profile)
+					finalMsg := fmt.Sprintf("Mock result: I couldn't find a skill for %s", skillID)
+					event := session.NewEvent(ctx.InvocationID())
+					event.Content = &genai.Content{
+						Parts: []*genai.Part{{Text: finalMsg}},
+						Role:  "model",
+					}
+					yield(event, nil)
+					return
+				}
+				
 				log.Printf("[MockAgent] Discovery result: %s", profile)
 
 				// 2. Invocation Step
 				log.Printf("[MockAgent] Calling ExecuteSkill for %s", skillID)
 				result, err := ExecuteSkill(context.Background(), ExecuteSkillInput{SkillID: skillID})
 				if err != nil {
-					yield(nil, fmt.Errorf("invocation failed: %v", err))
+					// Don't fail the whole run, yield the error message
+					finalMsg := fmt.Sprintf("Mock result: execution failed for %s: %v", skillID, err)
+					event := session.NewEvent(ctx.InvocationID())
+					event.Content = &genai.Content{
+						Parts: []*genai.Part{{Text: finalMsg}},
+						Role:  "model",
+					}
+					yield(event, nil)
 					return
 				}
 				log.Printf("[MockAgent] Invocation result: %s", result)

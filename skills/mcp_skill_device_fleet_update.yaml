@@ -1,0 +1,26 @@
+skill_id: "mcp://skill/device/fleet-update"
+description: "Wake up a fleet of devices and provision high-bandwidth QoS for a firmware update."
+version: "1.0.0"
+
+execution_sequence:
+  - step: 1
+    name: "AMF_Reachability"
+    action: "Namf_MT_EnableUEReachability"
+    target: "AMF"
+    critical: true
+
+  - step: 2
+    name: "SMF_Context_Update"
+    action: "Nsmf_PDUSession_UpdateSMContext"
+    target: "SMF"
+    depends_on: ["AMF_Reachability"]
+    critical: true
+    on_failure: 
+      rollback: ["AMF_Reachability"] # If SMF fails, tell AMF to drop the connection
+
+  - step: 3
+    name: "NEF_QoS_Provision"
+    action: "Nnef_AFSessionWithQoS_Create"
+    target: "NEF"
+    depends_on: ["SMF_Context_Update"]
+    critical: false # If QoS fails, we can still do the update slowly

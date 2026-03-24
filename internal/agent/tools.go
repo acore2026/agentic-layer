@@ -71,7 +71,7 @@ func ExecuteSkill(ctx context.Context, input ExecuteSkillInput) (string, error) 
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		return "", fmt.Errorf("A-IGW execution failed (Status %d): %s", resp.StatusCode, string(body))
 	}
 

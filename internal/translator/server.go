@@ -2,12 +2,16 @@ package translator
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
 
+	"github.com/google/6g-agentic-core/internal/translator/temporal_skills"
 	"github.com/google/6g-agentic-core/pkg/models"
+	"go.temporal.io/sdk/client"
 )
 
 func RegisterSkillWithACRF(acrfURL string, skillID string, invokeURL string) {
@@ -40,7 +44,11 @@ func RegisterSkillWithACRF(acrfURL string, skillID string, invokeURL string) {
 	log.Printf("Failed to register skill %s with ACRF after 5 attempts", skillID)
 }
 
-func NewHandler(t Translator) http.Handler {
+type WorkflowStarter interface {
+	ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error)
+}
+
+func NewHandler(tc WorkflowStarter) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/invoke", func(w http.ResponseWriter, r *http.Request) {
@@ -57,13 +65,37 @@ func NewHandler(t Translator) http.Handler {
 			return
 		}
 
-		if err := t.Translate(req.SkillID); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		// Prepare Workflow Execution
+		workflowOptions := client.StartWorkflowOptions{
+			ID:        fmt.Sprintf("skill-exec-%s", time.Now().Format("20060102150405")),
+			TaskQueue: "FleetManagementTaskQueue",
+		}
+		
+		// Map SkillID to appropriate action name for logs
+		action := "NetworkSkillExecution"
+		if req.SkillID == "mcp://skill/device/fleet-update" {
+			action = "FirmwareUpdateWakeup"
+		}
+
+		input := temporal_skills.FleetUpdateInput{
+			SkillID:   req.SkillID,
+			TargetUEs: []string{"default-target"}, 
+			Action:    action,
+		}
+
+		if tc == nil {
+			http.Error(w, "Temporal client is not initialized (check IGW logs)", http.StatusInternalServerError)
 			return
 		}
 
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Skill successfully translated and executed\n"))
+		we, err := tc.ExecuteWorkflow(context.Background(), workflowOptions, temporal_skills.FleetWakeUpWorkflow, input)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to start Temporal workflow: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+		w.Write([]byte(fmt.Sprintf("Workflow execution started asynchronously. WorkflowID: %s, RunID: %s\n", we.GetID(), we.GetRunID())))
 	})
 
 	return mux

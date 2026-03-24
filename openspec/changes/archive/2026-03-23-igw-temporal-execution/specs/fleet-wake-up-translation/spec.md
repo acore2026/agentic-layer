@@ -1,11 +1,4 @@
-## ADDED Requirements
-
-### Requirement: Bootstrapping Registration
-The A-IGW SHALL register the `mcp://skill/device/fleet-update` skill profile with the ACRF on startup.
-
-#### Scenario: Successful Self-Registration
-- **WHEN** the A-IGW service starts
-- **THEN** it SHALL send a POST `/register` request to the configured ACRF endpoint.
+## MODIFIED Requirements
 
 ### Requirement: Skill Invocation
 The A-IGW SHALL expose an HTTP POST `/invoke` endpoint that triggers the deterministic sequence of 3GPP service operations asynchronously using a Temporal workflow.

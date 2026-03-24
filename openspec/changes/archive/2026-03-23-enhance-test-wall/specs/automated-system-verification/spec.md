@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: End-to-End Flow Verification
 The system SHALL provide an automated test that validates the path from a natural language intent to a deterministic service operation. The test suite SHALL also cover failure paths, edge cases, and graceful degradation.
@@ -14,17 +14,3 @@ The system SHALL provide an automated test that validates the path from a natura
 #### Scenario: Handling Infrastructure Failures
 - **WHEN** an intent is posted but the A-IGW cannot execute the workflow (e.g., Temporal server is down)
 - **THEN** the system SHALL report the execution failure back to the user via the LLM agent.
-
-### Requirement: Service Orchestration
-The test framework SHALL automate the lifecycle (start/stop) of all dependent microservices.
-
-#### Scenario: Clean Test Environment
-- **WHEN** an integration test finishes
-- **THEN** all ports used by the microservices SHALL be released.
-
-### Requirement: Mock Agent Verification
-The system SHALL support a `MockCoreAgent` that enables testing the microservice plumbing without external LLM API calls.
-
-#### Scenario: Deterministic Reasoning Test
-- **WHEN** the `MockCoreAgent` is used in a test
-- **THEN** it SHALL consistently produce the same sequence of tool calls for a given intent.
