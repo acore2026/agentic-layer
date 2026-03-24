@@ -46,7 +46,7 @@ func (s *systemTestState) allAgenticCoreServicesAreRunning() error {
 	}
 	os.Setenv("AGENTIC_IGW_URL", s.igwURL)
 
-	mockAgent, err := agent.NewMockCoreAgent()
+	mockAgent, err := agent.NewMockCoreAgent(nil)
 	if err != nil {
 		return err
 	}

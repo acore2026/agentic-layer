@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"iter"
 	"log"
@@ -9,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/google/6g-agentic-core/internal/agent/openai"
+	"github.com/google/6g-agentic-core/internal/events"
+	"github.com/google/6g-agentic-core/pkg/models"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/model"
@@ -34,10 +37,33 @@ You MUST follow this Three-Stage Execution Pipeline:
 DO NOT say you cannot help until you have at least tried to search for a skill.
 Always confirm the final results of the execution to the user.`
 
-func NewCoreAgent(ctx context.Context) (agent.Agent, error) {
+// emitEvent sends a JSON event to the SSE broker if initialized.
+func emitEvent(broker *events.Broker, eventType string, data any) {
+	if broker == nil {
+		return
+	}
+	payload := map[string]any{
+		"type": eventType,
+		"data": data,
+	}
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("SSE: Failed to marshal event: %v", err)
+		return
+	}
+	
+	// Non-blocking send
+	select {
+	case broker.Notifier <- jsonBytes:
+	default:
+		log.Println("SSE: Broker notifier channel full, dropping event")
+	}
+}
+
+func NewCoreAgent(ctx context.Context, broker *events.Broker) (agent.Agent, error) {
 	if os.Getenv("AGENTIC_USE_MOCK_AGENT") == "true" {
 		log.Println("Using MockCoreAgent as requested by AGENTIC_USE_MOCK_AGENT=true")
-		return NewMockCoreAgent()
+		return NewMockCoreAgent(broker)
 	}
 
 	provider := os.Getenv("AGENTIC_LLM_PROVIDER")
@@ -89,7 +115,10 @@ func NewCoreAgent(ctx context.Context) (agent.Agent, error) {
 		Name:        "SearchSkill",
 		Description: "Discover a network skill profile by its URI or keyword",
 	}, func(ctx tool.Context, input SearchSkillInput) (string, error) {
-		return SearchSkill(ctx, input)
+		emitEvent(broker, "tool_call_started", map[string]string{"tool": "SearchSkill", "skill_id": input.SkillID})
+		res, err := SearchSkill(ctx, input)
+		emitEvent(broker, "tool_call_completed", map[string]any{"tool": "SearchSkill", "result": res, "error": err})
+		return res, err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create search tool: %v", err)
@@ -99,7 +128,10 @@ func NewCoreAgent(ctx context.Context) (agent.Agent, error) {
 		Name:        "ExecuteSkill",
 		Description: "Invoke a discovered network skill via the Interworking Gateway",
 	}, func(ctx tool.Context, input ExecuteSkillInput) (string, error) {
-		return ExecuteSkill(ctx, input)
+		emitEvent(broker, "tool_call_started", map[string]string{"tool": "ExecuteSkill", "skill_id": input.SkillID})
+		res, err := ExecuteSkill(ctx, input)
+		emitEvent(broker, "tool_call_completed", map[string]any{"tool": "ExecuteSkill", "result": res, "error": err})
+		return res, err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create execute tool: %v", err)
@@ -113,12 +145,43 @@ func NewCoreAgent(ctx context.Context) (agent.Agent, error) {
 		Tools:       []tool.Tool{searchTool, executeTool},
 	}
 
-	return llmagent.New(cfg)
+	// Wrap the core agent logic to emit start/end events
+	baseAgent, err := llmagent.New(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return agent.New(agent.Config{
+		Name: "CoreReasonerWithEvents",
+		Run: func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+			prompt := ""
+			if ctx.UserContent() != nil && len(ctx.UserContent().Parts) > 0 {
+				prompt = ctx.UserContent().Parts[0].Text
+			}
+			emitEvent(broker, "reasoning_started", map[string]string{"prompt": prompt})
+
+			return func(yield func(*session.Event, error) bool) {
+				var finalResponse string
+				for event, err := range baseAgent.Run(ctx) {
+					if err != nil {
+						emitEvent(broker, "reasoning_error", map[string]string{"error": err.Error()})
+						if !yield(nil, err) { return }
+						continue
+					}
+					if event.Content != nil && len(event.Content.Parts) > 0 {
+						finalResponse += event.Content.Parts[0].Text
+					}
+					if !yield(event, nil) { return }
+				}
+				emitEvent(broker, "reasoning_completed", map[string]string{"response": finalResponse})
+			}
+		},
+	})
 }
 
 // NewMockCoreAgent creates a deterministic mock agent for testing.
-func NewMockCoreAgent() (agent.Agent, error) {
-	cfg := agent.Config{
+func NewMockCoreAgent(broker *events.Broker) (agent.Agent, error) {
+	return agent.New(agent.Config{
 		Name:        "CoreReasoner",
 		Description: "Mock reasoning engine for 6G intent resolution",
 		Run: func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
@@ -128,6 +191,7 @@ func NewMockCoreAgent() (agent.Agent, error) {
 					prompt = ctx.UserContent().Parts[0].Text
 				}
 
+				emitEvent(broker, "reasoning_started", map[string]string{"prompt": prompt})
 				log.Printf("[MockAgent] Processing prompt: %s", prompt)
 
 				// Determine SkillID based on prompt
@@ -143,14 +207,17 @@ func NewMockCoreAgent() (agent.Agent, error) {
 				}
 
 				// 1. Discovery Step
+				emitEvent(broker, "discovery_started", map[string]string{"query": skillID})
 				log.Printf("[MockAgent] Calling SearchSkill for %s", skillID)
 				profile, err := SearchSkill(context.Background(), SearchSkillInput{SkillID: skillID})
 				if err != nil {
+					emitEvent(broker, "discovery_failed", map[string]string{"error": err.Error()})
 					yield(nil, fmt.Errorf("discovery failed: %v", err))
 					return
 				}
 				
 				if strings.Contains(profile, "not found") {
+					emitEvent(broker, "skill_not_found", map[string]string{"skill_id": skillID})
 					log.Printf("[MockAgent] Discovery result: %s", profile)
 					finalMsg := fmt.Sprintf("Mock result: I couldn't find a skill for %s", skillID)
 					event := session.NewEvent(ctx.InvocationID())
@@ -158,27 +225,34 @@ func NewMockCoreAgent() (agent.Agent, error) {
 						Parts: []*genai.Part{{Text: finalMsg}},
 						Role:  "model",
 					}
+					emitEvent(broker, "reasoning_completed", map[string]string{"response": finalMsg})
 					yield(event, nil)
 					return
 				}
 				
 				log.Printf("[MockAgent] Discovery result: %s", profile)
+				var profileObj models.SkillProfile
+				json.Unmarshal([]byte(profile), &profileObj)
+				emitEvent(broker, "skill_discovered", profileObj)
 
 				// 2. Invocation Step
+				emitEvent(broker, "invocation_started", map[string]string{"skill_id": skillID})
 				log.Printf("[MockAgent] Calling ExecuteSkill for %s", skillID)
 				result, err := ExecuteSkill(context.Background(), ExecuteSkillInput{SkillID: skillID})
 				if err != nil {
-					// Don't fail the whole run, yield the error message
+					emitEvent(broker, "invocation_failed", map[string]string{"error": err.Error()})
 					finalMsg := fmt.Sprintf("Mock result: execution failed for %s: %v", skillID, err)
 					event := session.NewEvent(ctx.InvocationID())
 					event.Content = &genai.Content{
 						Parts: []*genai.Part{{Text: finalMsg}},
 						Role:  "model",
 					}
+					emitEvent(broker, "reasoning_completed", map[string]string{"response": finalMsg})
 					yield(event, nil)
 					return
 				}
 				log.Printf("[MockAgent] Invocation result: %s", result)
+				emitEvent(broker, "invocation_completed", map[string]string{"result": result})
 
 				// 3. Final Response
 				finalMsg := fmt.Sprintf("Mock result: successfully triggered %s", skillID)
@@ -187,9 +261,9 @@ func NewMockCoreAgent() (agent.Agent, error) {
 					Parts: []*genai.Part{{Text: finalMsg}},
 					Role:  "model",
 				}
+				emitEvent(broker, "reasoning_completed", map[string]string{"response": finalMsg})
 				yield(event, nil)
 			}
 		},
-	}
-	return agent.New(cfg)
+	})
 }

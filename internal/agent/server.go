@@ -6,14 +6,20 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/google/6g-agentic-core/internal/events"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 )
 
-func NewHandler(r *runner.Runner, sessionService session.Service, appName string) http.Handler {
+func NewHandler(r *runner.Runner, sessionService session.Service, appName string, broker *events.Broker) http.Handler {
 	mux := http.NewServeMux()
+
+	// Mount the SSE stream if broker is provided
+	if broker != nil {
+		mux.Handle("/stream", broker)
+	}
 
 	mux.HandleFunc("/intent", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {

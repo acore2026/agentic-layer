@@ -98,6 +98,7 @@ func SetupAAIHF(coreAgent agent.Agent) (string, func(), error) {
 		return "", nil, err
 	}
 
-	handler := coreagent.NewHandler(r, sessionService, TestAppName)
+	// SSE Broker is nil for basic integration tests unless explicitly needed
+	handler := coreagent.NewHandler(r, sessionService, TestAppName, nil)
 	return StartService(handler)
 }

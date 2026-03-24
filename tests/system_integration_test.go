@@ -41,7 +41,7 @@ func TestSystem_EndToEnd_FleetWakeUp(t *testing.T) {
 	os.Setenv("AGENTIC_IGW_URL", igwURL)
 
 	// 3. Setup AAIHF with Mock Agent
-	mockAgent, err := agent.NewMockCoreAgent()
+	mockAgent, err := agent.NewMockCoreAgent(nil)
 	if err != nil {
 		t.Fatalf("failed to create mock agent: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestSystem_EndToEnd_Hallucination(t *testing.T) {
 	os.Setenv("AGENTIC_IGW_URL", igwURL)
 
 	// 3. Setup AAIHF with Mock Agent
-	mockAgent, err := agent.NewMockCoreAgent()
+	mockAgent, err := agent.NewMockCoreAgent(nil)
 	if err != nil {
 		t.Fatalf("failed to create mock agent: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestSystem_EndToEnd_IGWDown(t *testing.T) {
 	os.Setenv("AGENTIC_IGW_URL", "http://localhost:12345") // Dead port
 
 	// 3. Setup AAIHF with Mock Agent
-	mockAgent, err := agent.NewMockCoreAgent()
+	mockAgent, err := agent.NewMockCoreAgent(nil)
 	if err != nil {
 		t.Fatalf("failed to create mock agent: %v", err)
 	}

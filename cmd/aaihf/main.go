@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/6g-agentic-core/internal/agent"
 	"github.com/google/6g-agentic-core/internal/config"
+	"github.com/google/6g-agentic-core/internal/events"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
 )
@@ -20,8 +21,11 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// 2. Initialize SSE Broker
+	broker := events.NewBroker()
+
 	ctx := context.Background()
-	coreAgent, err := agent.NewCoreAgent(ctx)
+	coreAgent, err := agent.NewCoreAgent(ctx, broker)
 	if err != nil {
 		log.Fatalf("Failed to create core agent: %v", err)
 	}
@@ -36,7 +40,7 @@ func main() {
 		log.Fatalf("Failed to create runner: %v", err)
 	}
 
-	handler := agent.NewHandler(r, sessionService, AppName)
+	handler := agent.NewHandler(r, sessionService, AppName, broker)
 
 	log.Printf("AAIHF (Agentic AI Host Function) starting on :%s...", cfg.Port)
 	if err := http.ListenAndServe(":"+cfg.Port, handler); err != nil {

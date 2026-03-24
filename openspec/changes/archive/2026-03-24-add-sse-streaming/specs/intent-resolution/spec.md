@@ -1,11 +1,4 @@
-## ADDED Requirements
-
-### Requirement: Intent Reception
-The AAIHF SHALL expose an HTTP POST `/intent` endpoint to receive natural language prompts from users.
-
-#### Scenario: Valid Intent Received
-- **WHEN** a POST request is made to `/intent` with a `prompt` string
-- **THEN** the system SHALL return a `200 OK` and begin the reasoning process.
+## MODIFIED Requirements
 
 ### Requirement: Autonomous Reasoner
 The AAIHF SHALL utilize an `adk-go` agent that identifies the necessary sequence of tool calls (Discovery then Invocation) based on the user's prompt. It SHALL support multiple LLM providers (Gemini, Kimi) for increased reliability. The reasoner SHALL emit real-time events to the SSE broker at key lifecycle stages.
